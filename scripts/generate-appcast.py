@@ -18,10 +18,12 @@ import os
 from pathlib import Path
 import plistlib
 import re
+import stat
 import subprocess
 import tempfile
 from urllib.parse import urlparse
 import xml.etree.ElementTree as ET
+import zipfile
 
 SPARKLE_NS = "http://www.andymatuschak.org/xml-namespaces/sparkle"
 FEED_URL = "https://raw.githubusercontent.com/RockxyApp/RockxyGent/main/appcast.xml"
@@ -59,6 +61,60 @@ def create_outputs(appcast_path: Path, appcast_bytes: bytes,
 def rockxygent_release_identity(version: str, build: str) -> bool:
     return (re.fullmatch(r"\d+\.\d+\.\d+", version) is not None and
             re.fullmatch(r"[1-9]\d*", build) is not None)
+
+
+def archive_contains_exact_app(archive_path: Path, app_path: Path) -> bool:
+    """Compare the archive's app tree with the reviewed bundle, without extracting it."""
+    root = "RockxyGent.app"
+    local = {}
+    for path in app_path.rglob("*"):
+        relative = path.relative_to(app_path).as_posix()
+        local[f"{root}/{relative}"] = path
+    archived = {}
+    try:
+        with zipfile.ZipFile(archive_path) as archive:
+            for entry in archive.infolist():
+                name = entry.filename.rstrip("/")
+                if name == root:
+                    continue
+                if not name.startswith(root + "/") or "/../" in name or name.endswith("/.."):
+                    return False
+                # ditto stores resource-fork metadata in AppleDouble companions.
+                if name.rsplit("/", 1)[-1].startswith("._"):
+                    continue
+                if name in archived:
+                    return False
+                archived[name] = entry
+            if set(local) != set(archived):
+                return False
+            for name, path in local.items():
+                entry = archived[name]
+                host_mode = path.lstat().st_mode
+                archive_mode = entry.external_attr >> 16
+                if stat.S_ISDIR(host_mode):
+                    if not entry.is_dir() or not stat.S_ISDIR(archive_mode):
+                        return False
+                    continue
+                if stat.S_ISLNK(host_mode):
+                    if not stat.S_ISLNK(archive_mode):
+                        return False
+                    expected = os.fsencode(os.readlink(path))
+                    if archive.read(entry) != expected:
+                        return False
+                    continue
+                if not stat.S_ISREG(host_mode) or not stat.S_ISREG(archive_mode):
+                    return False
+                if entry.file_size != path.stat().st_size:
+                    return False
+                with path.open("rb") as source, archive.open(entry) as packed:
+                    for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                        if packed.read(len(chunk)) != chunk:
+                            return False
+                    if packed.read(1):
+                        return False
+    except (OSError, ValueError, zipfile.BadZipFile, RuntimeError):
+        return False
+    return bool(local)
 
 
 def main():
@@ -140,6 +196,8 @@ def main():
             info.get("SUFeedURL") != FEED_URL or
             info.get("LSMinimumSystemVersion") != args.minimum_system_version):
         parser.error("app identity, version, release date, feed or minimum macOS differs")
+    if not archive_contains_exact_app(args.archive, args.app):
+        parser.error("release archive app differs from the reviewed app bundle")
     signer = args.sparkle_bin / "sign_update"
     key_reader = args.sparkle_bin / "generate_keys"
     if not signer.is_file() or not key_reader.is_file():

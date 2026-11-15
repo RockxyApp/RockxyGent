@@ -13,6 +13,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 import xml.etree.ElementTree as ET
+import zipfile
 
 SCRIPT = Path(__file__).with_name("generate-appcast.py")
 SPARKLE = "http://www.andymatuschak.org/xml-namespaces/sparkle"
@@ -27,7 +28,6 @@ class AppcastPreparationTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.archive = self.root / "RockxyGent-0.1.0-2.zip"
-        self.archive.write_bytes(b"synthetic archive")
         self.app = self.root / "RockxyGent.app"
         (self.app / "Contents").mkdir(parents=True)
         self.key = base64.b64encode(b"k" * 32).decode()
@@ -42,6 +42,9 @@ class AppcastPreparationTests(unittest.TestCase):
             "SUPublicEDKey": self.key,
         }
         self.write_info()
+        (self.app / "Contents/MacOS").mkdir()
+        (self.app / "Contents/MacOS/RockxyGent").write_bytes(b"synthetic signed app")
+        self.write_archive()
         self.tools = self.root / "tools"
         self.tools.mkdir()
         for name, output in (("generate_keys", self.key), ("sign_update", "")):
@@ -54,6 +57,12 @@ class AppcastPreparationTests(unittest.TestCase):
     def write_info(self):
         with (self.app / "Contents/Info.plist").open("wb") as destination:
             plistlib.dump(self.info, destination)
+
+    def write_archive(self):
+        with zipfile.ZipFile(self.archive, "w") as archive:
+            archive.write(self.app, "RockxyGent.app")
+            for path in sorted(self.app.rglob("*")):
+                archive.write(path, "RockxyGent.app/" + path.relative_to(self.app).as_posix())
 
     def run_generator(self, *extra):
         return subprocess.run([
@@ -120,6 +129,26 @@ class AppcastPreparationTests(unittest.TestCase):
         self.write_info()
         result = self.run_generator()
         self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.output.exists())
+        self.assertFalse(self.catalog.exists())
+
+    def test_rejects_archive_from_different_app_bytes(self):
+        (self.app / "Contents/MacOS/RockxyGent").write_bytes(b"different app build")
+        result = self.run_generator()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("archive app differs", result.stderr)
+        self.assertFalse(self.output.exists())
+        self.assertFalse(self.catalog.exists())
+
+    def test_rejects_archive_with_different_info_plist(self):
+        self.info["CFBundleVersion"] = "3"
+        self.write_info()
+        self.write_archive()
+        self.info["CFBundleVersion"] = "2"
+        self.write_info()
+        result = self.run_generator()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("archive app differs", result.stderr)
         self.assertFalse(self.output.exists())
         self.assertFalse(self.catalog.exists())
 
