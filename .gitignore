@@ -9,6 +9,9 @@
 /scripts/*
 !/scripts/generate-appcast.py
 !/scripts/test_generate_appcast.py
+!/scripts/verify-public-asset.py
+!/scripts/test_verify_public_asset.py
+!/scripts/README.md
 !/.github/
 /.github/*
 !/.github/ISSUE_TEMPLATE/

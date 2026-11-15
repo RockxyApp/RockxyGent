@@ -1,0 +1,13 @@
+# Local release metadata preparation
+
+The public repository contains support information and, after a real release, update metadata. RockxyGent 0.1.0 has update metadata in its source but has not yet passed an integrated Sparkle update test. Generate candidate metadata locally for review; publish it only after the exact signed app, archive and update path have been approved and verified. Adding an `appcast.xml` file alone does not enable updates.
+
+For an approved release, the release owner must:
+
+1. Verify the app version/build, minimum macOS version, embedded feed URL and embedded public EdDSA key. The build must advance the published feed.
+2. Build and notarize the final ZIP. Sign those final, unchanged bytes with Sparkle `sign_update`, and verify the signature with the same keychain account. Never export or commit the private signing key.
+3. Run `generate-appcast.py` with the final archive, exact app bundle, Sparkle binary directory, signature, version, build, minimum system version, and public GitHub release URL. Supply `--previous` for later releases. The script refuses a mismatched app, signature, URL, previous version, or build.
+4. Compare the script's SHA-256 with the final archive and private release record. Review the entire XML and backend catalog JSON. After Stephen approves publication, publish the archive and versioned GitHub Release first. Run `verify-public-asset.py --archive <local-ZIP> --appcast <candidate-XML> --catalog <candidate-JSON> --version <version> --build <build> --expected-sha256 <archive_sha256-from-private-release-record>`. The read-only gate checks the public release metadata, anonymously downloads the exact ZIP, and compares its bytes, size, URL, Sparkle signature and backend catalog with the reviewed local inputs. A missing public release or mismatched asset fails closed.
+5. Publish the appcast, verify the raw HTTPS feed and newest enclosure, then exercise the actual update path from an older signed app. Only then may the README claim automatic updates.
+
+The generator itself stays in local/private release automation. The public repository's `.gitignore` intentionally permits only public support metadata and blocks app source, archives, secrets, and machine-specific working files. No release content is currently approved for publication.
