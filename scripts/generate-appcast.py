@@ -91,9 +91,10 @@ def main():
     if (info.get("CFBundleIdentifier") != "com.amunx.RockxyGent" or
             info.get("CFBundleShortVersionString") != args.version or
             str(info.get("CFBundleVersion")) != args.build or
+            info.get("RockxyGentReleasedAt") != args.released_at or
             info.get("SUFeedURL") != FEED_URL or
             info.get("LSMinimumSystemVersion") != args.minimum_system_version):
-        parser.error("app identity, version, feed or minimum macOS differs")
+        parser.error("app identity, version, release date, feed or minimum macOS differs")
     signer = args.sparkle_bin / "sign_update"
     key_reader = args.sparkle_bin / "generate_keys"
     if not signer.is_file() or not key_reader.is_file():

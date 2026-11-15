@@ -28,6 +28,7 @@ class AppcastPreparationTests(unittest.TestCase):
             "CFBundleIdentifier": "com.amunx.RockxyGent",
             "CFBundleShortVersionString": "0.1.0",
             "CFBundleVersion": "2",
+            "RockxyGentReleasedAt": "2026-11-20T12:30:00Z",
             "LSMinimumSystemVersion": "14.0",
             "SUFeedURL": "https://raw.githubusercontent.com/RockxyApp/RockxyGent/main/appcast.xml",
             "SUPublicEDKey": self.key,
@@ -68,6 +69,13 @@ class AppcastPreparationTests(unittest.TestCase):
 
     def test_rejects_app_without_embedded_feed(self):
         del self.info["SUFeedURL"]
+        self.write_info()
+        result = self.run_generator()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.output.exists())
+
+    def test_rejects_app_with_different_embedded_release_date(self):
+        self.info["RockxyGentReleasedAt"] = "2026-11-20T12:30:01Z"
         self.write_info()
         result = self.run_generator()
         self.assertNotEqual(result.returncode, 0)
