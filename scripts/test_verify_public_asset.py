@@ -1,4 +1,6 @@
 import base64
+from datetime import datetime, timezone
+from email.utils import format_datetime
 import hashlib
 import importlib.util
 import json
@@ -27,6 +29,7 @@ class PublicAssetVerificationTests(unittest.TestCase):
         self.sha = hashlib.sha256(self.archive.read_bytes()).hexdigest()
         self.signature = base64.b64encode(b"s" * 64).decode()
         self.release = {"tag_name": "v0.1.0", "draft": False, "prerelease": False,
+                        "published_at": "2026-11-15T12:00:00Z",
                         "assets": [{"name": self.name, "state": "uploaded", "size": self.archive.stat().st_size,
                                     "browser_download_url": self.url, "digest": "sha256:" + self.sha}]}
         root = ET.Element("rss")
@@ -34,6 +37,7 @@ class PublicAssetVerificationTests(unittest.TestCase):
         item = ET.SubElement(channel, "item")
         ET.SubElement(item, verifier.SPARKLE + "version").text = "2"
         ET.SubElement(item, verifier.SPARKLE + "shortVersionString").text = "0.1.0"
+        ET.SubElement(item, "pubDate").text = format_datetime(datetime(2026, 11, 15, 11, 0, tzinfo=timezone.utc), usegmt=True)
         ET.SubElement(item, "enclosure", {"url": self.url, "length": str(self.archive.stat().st_size),
                                            verifier.SPARKLE + "edSignature": self.signature})
         self.appcast = self.root / "appcast.xml"
@@ -41,7 +45,8 @@ class PublicAssetVerificationTests(unittest.TestCase):
         self.catalog = self.root / "catalog.json"
         self.catalog.write_text(json.dumps([{"product_code": "rockxygent", "version": "0.1.0", "build": "2",
                                              "download_url": self.url, "checksum": "sha256:" + self.sha,
-                                             "sparkle_signature": self.signature}]))
+                                             "sparkle_signature": self.signature,
+                                             "release_date": "2026-11-15T11:00:00Z"}]))
 
     def test_matching_public_asset_feed_and_catalog_pass(self):
         self.assertEqual(verifier.validate_metadata(self.release, self.appcast, self.catalog,
@@ -58,6 +63,20 @@ class PublicAssetVerificationTests(unittest.TestCase):
     def test_feed_and_catalog_mismatch_are_refused(self):
         self.catalog.write_text("[]")
         with self.assertRaises(ValueError):
+            verifier.validate_metadata(self.release, self.appcast, self.catalog,
+                                       "0.1.0", "2", self.sha, self.archive.stat().st_size)
+
+    def test_publication_more_than_24_hours_after_update_start_is_refused(self):
+        delayed = {**self.release, "published_at": "2026-11-16T11:00:01Z"}
+        with self.assertRaisesRegex(ValueError, "24 hours"):
+            verifier.validate_metadata(delayed, self.appcast, self.catalog,
+                                       "0.1.0", "2", self.sha, self.archive.stat().st_size)
+
+    def test_catalog_release_date_mismatch_is_refused(self):
+        rows = json.loads(self.catalog.read_text())
+        rows[0]["release_date"] = "2026-11-14T11:00:00Z"
+        self.catalog.write_text(json.dumps(rows))
+        with self.assertRaisesRegex(ValueError, "release date"):
             verifier.validate_metadata(self.release, self.appcast, self.catalog,
                                        "0.1.0", "2", self.sha, self.archive.stat().st_size)
 

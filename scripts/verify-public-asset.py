@@ -4,6 +4,8 @@
 import argparse
 import base64
 import binascii
+from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 import hashlib
 import json
 from pathlib import Path
@@ -59,6 +61,17 @@ def validate_metadata(release, appcast, catalog, version, build, expected_sha, s
                and item.findtext(SPARKLE + "shortVersionString") == version]
     if len(matches) != 1:
         raise ValueError("appcast must contain exactly one matching version/build")
+    raw_date = matches[0].findtext("pubDate")
+    try:
+        feed_date = parsedate_to_datetime(raw_date)
+        published_date = datetime.strptime(release.get("published_at", ""), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        raise ValueError("appcast or GitHub release publication date is invalid") from None
+    if feed_date.tzinfo is None:
+        raise ValueError("appcast publication date must have a UTC offset")
+    feed_date = feed_date.astimezone(timezone.utc)
+    if not feed_date <= published_date <= feed_date + timedelta(hours=24):
+        raise ValueError("public release is more than 24 hours after its embedded update-window start")
     enclosure = matches[0].find("enclosure")
     if enclosure is None or enclosure.get("url") != url or enclosure.get("length") != str(size):
         raise ValueError("appcast enclosure URL or byte length differs from public ZIP")
@@ -76,8 +89,9 @@ def validate_metadata(release, appcast, catalog, version, build, expected_sha, s
         raise ValueError("catalog must contain exactly one matching RockxyGent row")
     row = matches[0]
     if (row.get("download_url") != url or row.get("checksum") != "sha256:" + expected_sha
-            or row.get("sparkle_signature") != enclosure.get(SPARKLE + "edSignature")):
-        raise ValueError("catalog URL, checksum or signature differs from appcast/public ZIP")
+            or row.get("sparkle_signature") != enclosure.get(SPARKLE + "edSignature")
+            or row.get("release_date") != feed_date.strftime("%Y-%m-%dT%H:%M:%SZ")):
+        raise ValueError("catalog URL, checksum, signature or release date differs from appcast/public ZIP")
     return url
 
 
