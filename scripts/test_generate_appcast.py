@@ -123,6 +123,15 @@ class AppcastPreparationTests(unittest.TestCase):
         self.assertFalse(self.output.exists())
         self.assertFalse(self.catalog.exists())
 
+    def test_rejects_dmg_archive_that_backend_cannot_catalog(self):
+        self.archive = self.root / "RockxyGent-0.1.0-2.dmg"
+        self.archive.write_bytes(b"synthetic dmg")
+        result = self.run_generator()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("must be a ZIP", result.stderr)
+        self.assertFalse(self.output.exists())
+        self.assertFalse(self.catalog.exists())
+
     def test_rejects_app_with_different_embedded_release_date(self):
         self.info["RockxyGentReleasedAt"] = "2026-11-20T12:30:01Z"
         self.write_info()

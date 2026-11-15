@@ -101,9 +101,9 @@ def main():
         parser.error("minimum system version must be major.minor")
     if not args.archive.is_file() or args.archive.stat().st_size == 0:
         parser.error("archive must be a nonempty regular file")
-    if args.archive.suffix.lower() not in {".zip", ".dmg"}:
-        parser.error("archive must be a ZIP or DMG")
-    if args.archive.name != f"RockxyGent-{args.version}-{args.build}{args.archive.suffix.lower()}":
+    if args.archive.suffix != ".zip":
+        parser.error("RockxyGent release archive must be a ZIP")
+    if args.archive.name != f"RockxyGent-{args.version}-{args.build}.zip":
         parser.error("archive filename must match product, version and build")
     url = urlparse(args.download_url)
     if (url.scheme != "https" or url.netloc != "github.com" or
@@ -241,7 +241,7 @@ def main():
     ET.SubElement(item, "enclosure", {
         "url": args.download_url,
         "length": str(args.archive.stat().st_size),
-        "type": "application/zip" if args.archive.suffix.lower() == ".zip" else "application/octet-stream",
+        "type": "application/zip",
         f"{{{SPARKLE_NS}}}edSignature": args.ed_signature,
     })
     ET.SubElement(item, f"{{{SPARKLE_NS}}}minimumSystemVersion").text = args.minimum_system_version
