@@ -13,16 +13,47 @@ import base64
 from datetime import datetime, timezone
 from email.utils import format_datetime, parsedate_to_datetime
 import hashlib
+import json
+import os
 from pathlib import Path
 import plistlib
 import re
 import subprocess
+import tempfile
 from urllib.parse import urlparse
 import xml.etree.ElementTree as ET
 
 SPARKLE_NS = "http://www.andymatuschak.org/xml-namespaces/sparkle"
 FEED_URL = "https://raw.githubusercontent.com/RockxyApp/RockxyGent/main/appcast.xml"
 ET.register_namespace("sparkle", SPARKLE_NS)
+
+
+def create_outputs(appcast_path: Path, appcast_bytes: bytes,
+                   catalog_path: Path, catalog_bytes: bytes):
+    """Create both reviewed outputs without replacing a pre-existing path."""
+    staged = []
+    published = []
+    try:
+        for destination, content in ((catalog_path, catalog_bytes), (appcast_path, appcast_bytes)):
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(dir=destination.parent, prefix=".rockxygent-release-",
+                                             delete=False) as temporary:
+                staged.append((Path(temporary.name), destination))
+                temporary.write(content)
+        for temporary, destination in staged:
+            os.link(temporary, destination)
+            published.append((temporary, destination))
+    except BaseException:
+        for temporary, destination in published:
+            try:
+                if destination.lstat().st_ino == temporary.stat().st_ino:
+                    destination.unlink()
+            except FileNotFoundError:
+                pass
+        raise
+    finally:
+        for temporary, _ in staged:
+            temporary.unlink(missing_ok=True)
 
 
 def main():
@@ -40,8 +71,15 @@ def main():
     parser.add_argument("--released-at", required=True,
                         help="immutable first-publication UTC timestamp, YYYY-MM-DDTHH:MM:SSZ")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--catalog-output", type=Path, required=True,
+                        help="create-only backend release catalog JSON from the same verified archive")
     parser.add_argument("--previous", type=Path)
+    parser.add_argument("--previous-catalog", type=Path,
+                        help="required with --previous so old eligible releases remain available")
     args = parser.parse_args()
+
+    if bool(args.previous) != bool(args.previous_catalog):
+        parser.error("--previous and --previous-catalog must be provided together")
 
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", args.released_at):
         parser.error("released-at must be an exact UTC timestamp ending in Z")
@@ -73,8 +111,10 @@ def main():
         parser.error("EdDSA signature must be base64")
     if len(signature) != 64:
         parser.error("EdDSA signature must decode to 64 bytes")
-    if args.output.exists():
-        parser.error("output already exists; review existing feed before replacing it")
+    if args.output.resolve() == args.catalog_output.resolve():
+        parser.error("appcast and catalog outputs must be different paths")
+    if os.path.lexists(args.output) or os.path.lexists(args.catalog_output):
+        parser.error("output already exists; review existing feed and catalog before replacing either")
 
     info_path = args.app / "Contents/Info.plist"
     if not info_path.is_file():
@@ -110,6 +150,7 @@ def main():
     except subprocess.CalledProcessError:
         parser.error("Sparkle signature verification failed")
 
+    prior_catalog = []
     if args.previous:
         if not args.previous.is_file():
             parser.error("previous feed is missing")
@@ -133,6 +174,40 @@ def main():
                 parser.error("previous feed item has invalid pubDate")
             if previous_date.tzinfo is None or released_at <= previous_date.astimezone(timezone.utc):
                 parser.error("released-at must advance every previous feed pubDate")
+        if not args.previous_catalog.is_file():
+            parser.error("previous release catalog is missing")
+        try:
+            prior_catalog = json.loads(args.previous_catalog.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            parser.error("previous release catalog is not valid JSON")
+        if not isinstance(prior_catalog, list) or len(prior_catalog) != len(prior):
+            parser.error("previous release catalog must have one row per appcast item")
+        indexed_catalog = {}
+        for row in prior_catalog:
+            if not isinstance(row, dict) or row.get("product_code") != "rockxygent" or \
+                    row.get("platform") != "macos" or row.get("channel") != "stable":
+                parser.error("previous catalog contains a non-RockxyGent stable release")
+            key = (row.get("version"), row.get("build"))
+            if key in indexed_catalog or not all(isinstance(part, str) for part in key):
+                parser.error("previous catalog has duplicate or malformed release identity")
+            checksum = row.get("checksum")
+            if not isinstance(checksum, str) or re.fullmatch(r"sha256:[0-9a-f]{64}", checksum) is None:
+                parser.error("previous catalog has an invalid SHA-256 checksum")
+            indexed_catalog[key] = row
+        for previous_item in prior:
+            key = (previous_item.findtext(f"{{{SPARKLE_NS}}}shortVersionString"),
+                   previous_item.findtext(f"{{{SPARKLE_NS}}}version"))
+            row = indexed_catalog.get(key)
+            enclosure = previous_item.find("enclosure")
+            raw_date = previous_item.findtext("pubDate")
+            parsed_date = parsedate_to_datetime(raw_date).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            if row is None or enclosure is None or \
+                    row.get("release_date") != parsed_date or \
+                    row.get("download_url") != enclosure.get("url") or \
+                    row.get("sparkle_signature") != enclosure.get(f"{{{SPARKLE_NS}}}edSignature") or \
+                    row.get("minimum_system_version") != previous_item.findtext(f"{{{SPARKLE_NS}}}minimumSystemVersion") or \
+                    row.get("release_notes_url") != previous_item.findtext(f"{{{SPARKLE_NS}}}fullReleaseNotesLink"):
+                parser.error("previous catalog and appcast release metadata differ")
     else:
         channel = ET.Element("rss", {"version": "2.0"})
         feed = ET.SubElement(channel, "channel")
@@ -155,14 +230,30 @@ def main():
     })
     ET.SubElement(item, f"{{{SPARKLE_NS}}}minimumSystemVersion").text = args.minimum_system_version
     feed.insert(4, item)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    ET.ElementTree(channel).write(args.output, encoding="utf-8", xml_declaration=True)
     digest = hashlib.sha256()
     with args.archive.open("rb") as archive:
         for chunk in iter(lambda: archive.read(1024 * 1024), b""):
             digest.update(chunk)
-    print("archive_sha256=" + digest.hexdigest())
+    archive_sha256 = digest.hexdigest()
+    notes_url = f"https://github.com/RockxyApp/RockxyGent/releases/tag/v{args.version}"
+    new_record = {
+        "product_code": "rockxygent", "platform": "macos", "channel": "stable",
+        "version": args.version, "build": args.build, "release_date": args.released_at,
+        "download_url": args.download_url, "checksum": f"sha256:{archive_sha256}",
+        "sparkle_signature": args.ed_signature, "release_notes_url": notes_url,
+        "minimum_system_version": args.minimum_system_version,
+    }
+    catalog = sorted([*prior_catalog, new_record],
+                     key=lambda row: (row["release_date"], int(row["build"])))
+    appcast_bytes = ET.tostring(channel, encoding="utf-8", xml_declaration=True)
+    catalog_bytes = (json.dumps(catalog, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    try:
+        create_outputs(args.output, appcast_bytes, args.catalog_output, catalog_bytes)
+    except OSError as error:
+        parser.error(f"could not create release outputs: {error.strerror or error}")
+    print("archive_sha256=" + archive_sha256)
     print("appcast=" + str(args.output))
+    print("release_catalog=" + str(args.catalog_output))
 
 
 if __name__ == "__main__":
