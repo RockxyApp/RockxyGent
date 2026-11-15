@@ -1,0 +1,67 @@
+name: Bug report
+description: Report a reproducible Rockxygent problem that is not a security vulnerability.
+title: "Bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: "Use a disposable sample project. Remove private code, credentials, hostnames, account paths, agent output and VM data from text and attachments. Report vulnerabilities privately."
+  - type: input
+    id: version
+    attributes:
+      label: Rockxygent version and build
+      placeholder: "0.x.x (build x)"
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and Mac model
+    validations:
+      required: true
+  - type: input
+    id: guest
+    attributes:
+      label: Guest distribution and image version
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - VM lifecycle and provisioning
+        - Agent execution
+        - Workspace review and import
+        - Network policy
+        - Checkpoints and storage
+        - App interface and accessibility
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce with sample data
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: "I removed private code, credentials, hostnames, account paths, agent output, VM data and license details from this report and its attachments."
+          required: true
