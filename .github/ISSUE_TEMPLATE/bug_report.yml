@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible Rockxygent problem that is not a security vulnerability.
+description: Report a reproducible RockxyGent problem that is not a security vulnerability.
 title: "Bug: "
 labels:
   - bug
@@ -10,7 +10,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: Rockxygent version and build
+      label: RockxyGent version and build
       placeholder: "0.x.x (build x)"
     validations:
       required: true
