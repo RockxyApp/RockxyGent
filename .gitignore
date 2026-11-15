@@ -5,6 +5,10 @@
 !/SUPPORT.md
 !/SECURITY.md
 !/appcast.xml
+!/scripts/
+/scripts/*
+!/scripts/generate-appcast.py
+!/scripts/test_generate_appcast.py
 !/.github/
 /.github/*
 !/.github/ISSUE_TEMPLATE/
