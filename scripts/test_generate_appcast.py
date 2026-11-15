@@ -221,6 +221,27 @@ class AppcastPreparationTests(unittest.TestCase):
         self.assertFalse(self.output.exists())
         self.assertFalse(self.catalog.exists())
 
+    def test_previous_feed_rejects_malformed_or_duplicate_build_identity(self):
+        previous, old_catalog = self.write_previous()
+        feed = ET.parse(previous)
+        feed.find("./channel/item").find(f"{{{SPARKLE}}}version").text = "bad"
+        feed.write(previous, encoding="utf-8", xml_declaration=True)
+        result = self.run_generator("--previous", str(previous), "--previous-catalog", str(old_catalog))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("malformed build", result.stderr)
+        self.assertFalse(self.output.exists())
+        previous, old_catalog = self.write_previous()
+        feed = ET.parse(previous)
+        feed.find("./channel").append(ET.fromstring(ET.tostring(feed.find("./channel/item"))))
+        feed.write(previous, encoding="utf-8", xml_declaration=True)
+        rows = json.loads(old_catalog.read_text())
+        extra = dict(rows[0], version="0.0.8")
+        old_catalog.write_text(json.dumps([*rows, extra]))
+        result = self.run_generator("--previous", str(previous), "--previous-catalog", str(old_catalog))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("duplicate release identity", result.stderr)
+        self.assertFalse(self.output.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

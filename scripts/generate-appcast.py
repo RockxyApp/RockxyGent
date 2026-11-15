@@ -56,6 +56,11 @@ def create_outputs(appcast_path: Path, appcast_bytes: bytes,
             temporary.unlink(missing_ok=True)
 
 
+def rockxygent_release_identity(version: str, build: str) -> bool:
+    return (re.fullmatch(r"\d+\.\d+\.\d+", version) is not None and
+            re.fullmatch(r"[1-9]\d*", build) is not None)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--archive", type=Path, required=True)
@@ -161,7 +166,10 @@ def main():
         prior = feed.findall("item")
         if any(i.findtext(f"{{{SPARKLE_NS}}}shortVersionString") == args.version for i in prior):
             parser.error("version already in feed")
-        builds = [int(i.findtext(f"{{{SPARKLE_NS}}}version")) for i in prior]
+        try:
+            builds = [int(i.findtext(f"{{{SPARKLE_NS}}}version")) for i in prior]
+        except (TypeError, ValueError):
+            parser.error("previous feed contains a malformed build")
         if builds and int(args.build) <= max(builds):
             parser.error("build does not advance feed")
         for previous_item in prior:
@@ -190,14 +198,20 @@ def main():
             key = (row.get("version"), row.get("build"))
             if key in indexed_catalog or not all(isinstance(part, str) for part in key):
                 parser.error("previous catalog has duplicate or malformed release identity")
+            if not rockxygent_release_identity(*key):
+                parser.error("previous catalog has malformed release version or build")
             checksum = row.get("checksum")
             if not isinstance(checksum, str) or re.fullmatch(r"sha256:[0-9a-f]{64}", checksum) is None:
                 parser.error("previous catalog has an invalid SHA-256 checksum")
             indexed_catalog[key] = row
+        matched_keys = set()
         for previous_item in prior:
             key = (previous_item.findtext(f"{{{SPARKLE_NS}}}shortVersionString"),
                    previous_item.findtext(f"{{{SPARKLE_NS}}}version"))
             row = indexed_catalog.get(key)
+            if key in matched_keys:
+                parser.error("previous appcast has duplicate release identity")
+            matched_keys.add(key)
             enclosure = previous_item.find("enclosure")
             raw_date = previous_item.findtext("pubDate")
             parsed_date = parsedate_to_datetime(raw_date).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -208,6 +222,8 @@ def main():
                     row.get("minimum_system_version") != previous_item.findtext(f"{{{SPARKLE_NS}}}minimumSystemVersion") or \
                     row.get("release_notes_url") != previous_item.findtext(f"{{{SPARKLE_NS}}}fullReleaseNotesLink"):
                 parser.error("previous catalog and appcast release metadata differ")
+        if matched_keys != set(indexed_catalog):
+            parser.error("previous catalog contains a release absent from appcast")
     else:
         channel = ET.Element("rss", {"version": "2.0"})
         feed = ET.SubElement(channel, "channel")
