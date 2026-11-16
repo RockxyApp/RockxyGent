@@ -196,6 +196,9 @@ def main():
             info.get("SUFeedURL") != FEED_URL or
             info.get("LSMinimumSystemVersion") != args.minimum_system_version):
         parser.error("app identity, version, release date, feed or minimum macOS differs")
+    license_config = info.get("RockxyGentLicense")
+    if not isinstance(license_config, dict) or license_config.get("livemode") is not True:
+        parser.error("app must embed a reviewed LIVE license configuration; TEST app is not releasable")
     if not archive_contains_exact_app(args.archive, args.app):
         parser.error("release archive app differs from the reviewed app bundle")
     signer = args.sparkle_bin / "sign_update"

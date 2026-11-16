@@ -40,6 +40,7 @@ class AppcastPreparationTests(unittest.TestCase):
             "LSMinimumSystemVersion": "14.0",
             "SUFeedURL": "https://raw.githubusercontent.com/RockxyApp/RockxyGent/main/appcast.xml",
             "SUPublicEDKey": self.key,
+            "RockxyGentLicense": {"livemode": True},
         }
         self.write_info()
         (self.app / "Contents/MacOS").mkdir()
@@ -168,6 +169,21 @@ class AppcastPreparationTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(self.output.exists())
         self.assertFalse(self.catalog.exists())
+
+    def test_rejects_test_or_missing_live_license_configuration(self):
+        for config in ({"livemode": False}, {"livemode": "true"}, None):
+            with self.subTest(config=config):
+                if config is None:
+                    self.info.pop("RockxyGentLicense", None)
+                else:
+                    self.info["RockxyGentLicense"] = config
+                self.write_info()
+                self.write_archive()
+                result = self.run_generator()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("TEST app is not releasable", result.stderr)
+                self.assertFalse(self.output.exists())
+                self.assertFalse(self.catalog.exists())
 
     def test_rejects_existing_output(self):
         self.output.write_text("keep")
