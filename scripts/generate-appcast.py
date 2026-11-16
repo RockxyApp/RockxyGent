@@ -63,6 +63,27 @@ def rockxygent_release_identity(version: str, build: str) -> bool:
             re.fullmatch(r"[1-9]\d*", build) is not None)
 
 
+def verify_distribution_app(app_path: Path) -> None:
+    """Require the same local signing, stapling and Gatekeeper gates as packaging."""
+    checks = (
+        (["codesign", "--verify", "--deep", "--strict", str(app_path)], "code signature"),
+        (["codesign", "--display", "--verbose=2", str(app_path)], "Developer ID identity"),
+        (["xcrun", "stapler", "validate", str(app_path)], "stapled notarization ticket"),
+        (["spctl", "--assess", "--type", "execute", "--verbose=2", str(app_path)], "Gatekeeper assessment"),
+    )
+    for command, label in checks:
+        try:
+            result = subprocess.run(command, check=True, capture_output=True, text=True, timeout=60)
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            raise ValueError(f"{label} failed for release app") from None
+        if label == "Developer ID identity":
+            details = set((result.stdout + result.stderr).splitlines())
+            if ("Identifier=com.amunx.RockxyGent" not in details or
+                    "TeamIdentifier=9YNS969KZE" not in details or
+                    not any(line.startswith("Authority=Developer ID Application:") for line in details)):
+                raise ValueError("release app must have RockxyGent Developer ID identity and team")
+
+
 def archive_contains_exact_app(archive_path: Path, app_path: Path) -> bool:
     """Compare the archive's app tree with the reviewed bundle, without extracting it."""
     root = "RockxyGent.app"
@@ -198,9 +219,13 @@ def main():
         parser.error("app identity, version, release date, feed or minimum macOS differs")
     license_config = info.get("RockxyGentLicense")
     if not isinstance(license_config, dict) or license_config.get("livemode") is not True:
-        parser.error("app must embed a reviewed LIVE license configuration; TEST app is not releasable")
+        parser.error("app must embed boolean LIVE license mode; TEST app is not releasable")
     if not archive_contains_exact_app(args.archive, args.app):
         parser.error("release archive app differs from the reviewed app bundle")
+    try:
+        verify_distribution_app(args.app)
+    except ValueError as error:
+        parser.error(str(error))
     signer = args.sparkle_bin / "sign_update"
     key_reader = args.sparkle_bin / "generate_keys"
     if not signer.is_file() or not key_reader.is_file():

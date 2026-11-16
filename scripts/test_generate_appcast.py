@@ -52,6 +52,20 @@ class AppcastPreparationTests(unittest.TestCase):
             tool = self.tools / name
             tool.write_text("#!/bin/sh\nprintf '%s\\n' '" + output + "'\n")
             tool.chmod(0o755)
+        for name in ("codesign", "xcrun", "spctl"):
+            tool = self.tools / name
+            tool.write_text(
+                "#!/bin/sh\n"
+                "[ \"${ROCKXYGENT_FAKE_GATE_FAIL:-}\" = \"" + name + "\" ] && exit 1\n"
+                + ("if [ \"$1\" = --display ]; then\n"
+                   "  if [ \"${ROCKXYGENT_FAKE_GATE_FAIL:-}\" = identity ]; then\n"
+                   "    printf '%s\\n' 'Identifier=com.amunx.RockxyGent.bad' 'TeamIdentifier=9YNS969KZE' "
+                   "'Authority=Developer ID Application: Fixture' >&2\n    exit 0\n  fi\n"
+                   "  printf '%s\\n' 'Identifier=com.amunx.RockxyGent' 'TeamIdentifier=9YNS969KZE' "
+                   "'Authority=Developer ID Application: Fixture' >&2\nfi\n" if name == "codesign" else "")
+                + "exit 0\n"
+            )
+            tool.chmod(0o755)
         self.output = self.root / "appcast.xml"
         self.catalog = self.root / "release-catalog.json"
 
@@ -65,7 +79,12 @@ class AppcastPreparationTests(unittest.TestCase):
             for path in sorted(self.app.rglob("*")):
                 archive.write(path, "RockxyGent.app/" + path.relative_to(self.app).as_posix())
 
-    def run_generator(self, *extra):
+    def run_generator(self, *extra, gate_failure=None):
+        environment = dict(os.environ)
+        environment["PATH"] = str(self.tools) + os.pathsep + environment.get("PATH", "")
+        environment.pop("ROCKXYGENT_FAKE_GATE_FAIL", None)
+        if gate_failure:
+            environment["ROCKXYGENT_FAKE_GATE_FAIL"] = gate_failure
         return subprocess.run([
             sys.executable, str(SCRIPT), "--archive", str(self.archive),
             "--app", str(self.app), "--sparkle-bin", str(self.tools),
@@ -74,7 +93,7 @@ class AppcastPreparationTests(unittest.TestCase):
             "--ed-signature", self.signature, "--minimum-system-version", "14.0",
             "--released-at", "2026-11-20T12:30:00Z",
             "--output", str(self.output), "--catalog-output", str(self.catalog), *extra,
-        ], capture_output=True, text=True)
+        ], capture_output=True, text=True, env=environment)
 
     def write_previous(self, date="Thu, 19 Nov 2026 12:30:00 GMT"):
         previous_feed = self.root / "previous.xml"
@@ -182,6 +201,16 @@ class AppcastPreparationTests(unittest.TestCase):
                 result = self.run_generator()
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("TEST app is not releasable", result.stderr)
+                self.assertFalse(self.output.exists())
+                self.assertFalse(self.catalog.exists())
+
+    def test_rejects_failed_distribution_gates(self):
+        for gate in ("codesign", "identity", "xcrun", "spctl"):
+            with self.subTest(gate=gate):
+                result = self.run_generator(gate_failure=gate)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertTrue("failed for release app" in result.stderr or
+                                "Developer ID identity and team" in result.stderr)
                 self.assertFalse(self.output.exists())
                 self.assertFalse(self.catalog.exists())
 
