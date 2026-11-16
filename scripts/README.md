@@ -1,6 +1,6 @@
-# Local release metadata preparation
+# Release metadata verification
 
-The public repository contains support information and, after a real release, update metadata. RockxyGent 0.1.0 has update metadata in its source but has not yet passed an integrated Sparkle update test. Generate candidate metadata locally for review; publish it only after the exact signed app, archive and update path have been approved and verified. Adding an `appcast.xml` file alone does not enable updates.
+The public repository contains support information and RockxyGent 0.1.0 release metadata. Its published ZIP passed an anonymous byte comparison against the signed, notarized local archive, and the raw appcast matches the reviewed candidate. An integrated Sparkle update from an older signed app has not yet been tested. For later releases, generate candidate metadata locally and publish it only after the exact signed app and archive have been approved and verified. Adding an `appcast.xml` file alone does not prove updates work.
 
 For an approved release, the release owner must:
 
@@ -10,4 +10,4 @@ For an approved release, the release owner must:
 4. Compare the script's SHA-256 with the final archive and private release record. Review the entire XML and backend catalog JSON. After Stephen approves publication, publish the archive and versioned GitHub Release first. Run `verify-public-asset.py --archive <local-ZIP> --appcast <candidate-XML> --catalog <candidate-JSON> --version <version> --build <build> --expected-sha256 <archive_sha256-from-private-release-record>`. The read-only gate checks the public release metadata, anonymously downloads the exact ZIP, and compares its bytes, size, URL, Sparkle signature, release date and backend catalog with the reviewed local inputs. GitHub publication must occur no later than 24 hours after the immutable release date in the appcast/catalog. If the release slips beyond that window, rebuild and notarize with a new date, then regenerate the feed/catalog and repeat this gate before publishing update metadata. A missing public release or mismatched asset fails closed.
 5. Publish the appcast, verify the raw HTTPS feed and newest enclosure, then exercise the actual update path from an older signed app. Only then may the README claim automatic updates.
 
-The generator itself stays in local/private release automation. The public repository's `.gitignore` intentionally permits only public support metadata and blocks app source, archives, secrets, and machine-specific working files. No release content is currently approved for publication.
+The generator itself stays in local/private release automation. The public repository's `.gitignore` intentionally permits only public support metadata and blocks app source, archives, secrets, and machine-specific working files.
