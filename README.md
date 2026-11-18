@@ -4,6 +4,6 @@ RockxyGent brings coding-agent work into a native Mac workspace: a local Linux V
 
 ## Download
 
-Download RockxyGent 0.1.0 (build 2): [signed and notarized ZIP](https://github.com/RockxyApp/RockxyGent/releases/download/v0.1.0/RockxyGent-0.1.0-2.zip) for Apple silicon Macs running macOS 14 or later. See the [release notes](https://github.com/RockxyApp/RockxyGent/releases/tag/v0.1.0) and [pricing](https://rockxy.io/rockxygent/pricing).
+Download RockxyGent 0.1.1 (build 3): [signed and notarized ZIP](https://github.com/RockxyApp/RockxyGent/releases/download/v0.1.1/RockxyGent-0.1.1-3.zip) for Apple silicon Macs running macOS 14 or later. See the [release notes](https://github.com/RockxyApp/RockxyGent/releases/tag/v0.1.1) and [pricing](https://rockxy.io/rockxygent/pricing). Existing Lemon Squeezy licenses keep their original rights.
 
 Use [Issues](https://github.com/RockxyApp/RockxyGent/issues) for reproducible bugs and feature requests. See [SUPPORT.md](SUPPORT.md) for safe report details and [SECURITY.md](SECURITY.md) for private vulnerability reporting.
